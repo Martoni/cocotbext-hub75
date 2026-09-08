@@ -5,7 +5,7 @@ setup(
     version="0.1",
     packages=find_namespace_packages(include=["cocotbext.*"]),
     install_requires=["cocotb", "cocotb-bus"],
-    python_requires=">=3.6",
+    python_requires=">=3.9",
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
