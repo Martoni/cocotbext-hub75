@@ -1,4 +1,5 @@
 import os
+from cocotb.types import LogicArray
 from cocotb_bus.monitors import BusMonitor
 from cocotb.triggers import RisingEdge
 
@@ -33,15 +34,10 @@ class Hub75Monitor(BusMonitor):
         monitor.save_ppm("out.ppm", frame)
     """
 
-    _signals = [
-        'R1', 'G1', 'B1',
-        'R2', 'G2', 'B2',
-        'A', 'B', 'C', 'D',
-        'CLK', 'LATCH', 'OEN',
-    ]
+    _signals = ['RGB1', 'RGB2', 'ADDR', 'clk', 'LATCH', 'OEN']
 
     def __init__(self, dut, name, clk,
-                 width=64, height=32, rows_per_address=1,
+                 width=32, height=32,
                  callback=None, event=None):
         """
         Args:
@@ -50,8 +46,6 @@ class Hub75Monitor(BusMonitor):
             clk:            clock signal handle
             width:          panel width in pixels (default 64)
             height:         panel height in pixels (default 32)
-            rows_per_address: number of row pairs per address combination
-                              (typically 1 for standard panels)
             callback:       optional callable invoked with each complete frame
             event:          optional cocotb Event set on each complete frame
         """
@@ -60,17 +54,17 @@ class Hub75Monitor(BusMonitor):
 
         self.width = width
         self.height = height
-        self.rows_per_address = rows_per_address
 
         self._row_pairs = height // 2
         self._addr_bits = (self._row_pairs - 1).bit_length()
 
-        self._rgb1_signals = ['R1', 'G1', 'B1']
-        self._rgb2_signals = ['R2', 'G2', 'B2']
-        self._addr_signals = ['A', 'B', 'C', 'D']
-
-        self._frame_buffer = [[[0, 0, 0] for _ in range(width)]
-                              for _ in range(height)]
+        self._rgb1_signals = ['RGB1']
+        self._rgb2_signals = ['RGB2']
+        self._addr_signals = ['ADDR']
+        self._frame_buffer = [
+                                [LogicArray('000') for _ in range(self.width)]
+                                for _ in range(self.height)
+                             ]
         self._row_buf1 = []
         self._row_buf2 = []
         self._rows_written = []
@@ -95,20 +89,16 @@ class Hub75Monitor(BusMonitor):
                 self._reset_buffers()
                 continue
 
-            r1 = int(self.bus.R1.value)
-            g1 = int(self.bus.G1.value)
-            b1 = int(self.bus.B1.value)
-            r2 = int(self.bus.R2.value)
-            g2 = int(self.bus.G2.value)
-            b2 = int(self.bus.B2.value)
-            oen = int(self.bus.OEN.value)
+            rgb1 = self.bus.RGB1.value
+            rgb2 = self.bus.RGB2.value
+            oen = self.bus.OEN.value
+            latch = self.bus.LATCH.value
 
-            if not oen:
-                self._row_buf1.append([r1, g1, b1])
-                self._row_buf2.append([r2, g2, b2])
+            if oen == '0':
+                self._row_buf1.append(rgb1)
+                self._row_buf2.append(rgb2)
 
-            latch = int(self.bus.LATCH.value)
-            if latch:
+            if latch == '1':
                 addr = self._read_address()
                 self._write_latched_row(addr)
 
@@ -125,18 +115,18 @@ class Hub75Monitor(BusMonitor):
         return addr
 
     def _write_latched_row(self, addr):
-        row_top = addr * self.rows_per_address
-        row_bot = row_top + self._row_pairs
+        row_top = addr
+        row_bot = 0x10 + addr
 
         if len(self._row_buf1) >= self.width:
             for x in range(self.width):
-                self._frame_buffer[row_top][x] = self._row_buf1[x][:]
+                self._frame_buffer[row_top][x] = self._row_buf1[x]
             self._row_buf1 = []
             self._rows_written.append(row_top)
 
         if len(self._row_buf2) >= self.width:
             for x in range(self.width):
-                self._frame_buffer[row_bot][x] = self._row_buf2[x][:]
+                self._frame_buffer[row_bot][x] = self._row_buf2[x]
             self._row_buf2 = []
             self._rows_written.append(row_bot)
 
@@ -170,10 +160,18 @@ class Hub75Monitor(BusMonitor):
 
         with open(filepath, 'w') as f:
             f.write(f"P3\n{self.width} {self.height}\n255\n")
+            pixels = ''
+            print(f"           row number {len(frame)}")
             for row in frame:
-                pixels = ' '.join(f'{r * 255} {g * 255} {b * 255}'
-                                  for r, g, b in row)
+                print(f"           row size {len(row)}")
+                for pix in row:
+                    print(f"->{pix}<-")
+                    r = 255 if pix[2] == '1' else 0
+                    g = 255 if pix[1] == '1' else 0
+                    b = 255 if pix[0] == '1' else 0
+                    pixels += f'{r} {g} {b} '
                 f.write(pixels + '\n')
+                pixels = ''
 
     async def get_frame(self):
         """Wait for and return the next complete frame."""
@@ -181,7 +179,7 @@ class Hub75Monitor(BusMonitor):
 
     def get_pixel(self, x, y):
         """Get pixel color [R, G, B] at (x, y) from current frame buffer."""
-        return self._frame_buffer[y][x][:]
+        return self._frame_buffer[y][x]
 
     @property
     def frame_count(self):
@@ -190,5 +188,5 @@ class Hub75Monitor(BusMonitor):
 
     def reset_frame(self):
         """Reset the frame buffer to black."""
-        self._frame_buffer = [[[0, 0, 0] for _ in range(self.width)]
-                              for _ in range(self.height)]
+        self._frame_buffer = [[LogicArray('000') for _ in range(self.width)]
+                                          for _ in range(self.height)]
