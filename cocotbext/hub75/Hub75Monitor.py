@@ -1,7 +1,7 @@
 import os
 from cocotb.types import LogicArray
 from cocotb_bus.monitors import BusMonitor
-from cocotb.triggers import RisingEdge
+from cocotb.triggers import RisingEdge, First
 
 
 class Hub75Monitor(BusMonitor):
@@ -13,9 +13,9 @@ class Hub75Monitor(BusMonitor):
     PPM (P3 ASCII) image files.
 
     The HUB75 bus carries two rows simultaneously:
-      - R1/G1/B1: upper half pixels
-      - R2/G2/B2: lower half pixels
-      - A/B/C/D:  row pair address
+      - RGB1: upper half pixels
+      - RGB2: lower half pixels
+      - ADDR:  row pair address
       - CLK:       shift clock
       - LATCH:     strobe latch (active high pulse at end of row)
       - OEN:       output enable (active low)
@@ -34,7 +34,7 @@ class Hub75Monitor(BusMonitor):
         monitor.save_ppm("out.ppm", frame)
     """
 
-    _signals = ['RGB1', 'RGB2', 'ADDR', 'clk', 'LATCH', 'OEN']
+    _signals = ['RGB1', 'RGB2', 'ADDR', 'CLK', 'LATCH', 'OEN']
 
     def __init__(self, dut, name, clk,
                  width=32, height=32,
@@ -61,6 +61,7 @@ class Hub75Monitor(BusMonitor):
         self._rgb1_signals = ['RGB1']
         self._rgb2_signals = ['RGB2']
         self._addr_signals = ['ADDR']
+        self._clk_signals = ['CLK']
         self._frame_buffer = [
                                 [LogicArray('000') for _ in range(self.width)]
                                 for _ in range(self.height)
@@ -83,7 +84,10 @@ class Hub75Monitor(BusMonitor):
 
     async def _monitor_recv(self):
         while True:
-            await RisingEdge(self.clock)
+            clk_trig = RisingEdge(self.bus.CLK)
+            latch_trig = RisingEdge(self.bus.LATCH)
+
+            trigged = await First(clk_trig, latch_trig)
 
             if self.in_reset:
                 self._reset_buffers()
@@ -94,11 +98,11 @@ class Hub75Monitor(BusMonitor):
             oen = self.bus.OEN.value
             latch = self.bus.LATCH.value
 
-            if oen == '0':
+            if (trigged is clk_trig) and oen == '0':
                 self._row_buf1.append(rgb1)
                 self._row_buf2.append(rgb2)
 
-            if latch == '1':
+            if trigged is latch_trig:
                 addr = self._read_address()
                 self._write_latched_row(addr)
 
@@ -115,8 +119,8 @@ class Hub75Monitor(BusMonitor):
         return addr
 
     def _write_latched_row(self, addr):
-        row_top = addr
-        row_bot = 0x10 + addr
+        row_top = 0x10 + addr
+        row_bot = addr
 
         if len(self._row_buf1) >= self.width:
             for x in range(self.width):
@@ -144,6 +148,16 @@ class Hub75Monitor(BusMonitor):
     def _copy_frame(self):
         return [[pixel[:] for pixel in row] for row in self._frame_buffer]
 
+    def display_ascii(self):
+        """
+        Display  in ascii
+        """
+        frame = self._frame_buffer
+        for row in frame:
+            for pix in row:
+                print(f"{pix} ", end="")
+            print("")
+
     def save_ppm(self, filepath, frame=None):
         """
         Save a frame as PPM (P3 ASCII) image.
@@ -161,11 +175,8 @@ class Hub75Monitor(BusMonitor):
         with open(filepath, 'w') as f:
             f.write(f"P3\n{self.width} {self.height}\n255\n")
             pixels = ''
-            print(f"           row number {len(frame)}")
             for row in frame:
-                print(f"           row size {len(row)}")
                 for pix in row:
-                    print(f"->{pix}<-")
                     r = 255 if pix[2] == '1' else 0
                     g = 255 if pix[1] == '1' else 0
                     b = 255 if pix[0] == '1' else 0
