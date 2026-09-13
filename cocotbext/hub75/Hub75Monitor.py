@@ -107,6 +107,7 @@ class Hub75Monitor(BusMonitor):
                 self._write_latched_row(addr)
 
             if self._frame_complete():
+                print(f"Frame count {self._frame_count}")
                 self._frame_count += 1
                 self._recv(self._copy_frame())
                 self._reset_frame_complete()
@@ -119,16 +120,14 @@ class Hub75Monitor(BusMonitor):
         return addr
 
     def _write_latched_row(self, addr):
-        row_top = 0x10 + addr
-        row_bot = addr
+        row_top = addr
+        row_bot = 0x10 + addr
 
         if len(self._row_buf1) >= self.width:
             for x in range(self.width):
                 self._frame_buffer[row_top][x] = self._row_buf1[x]
             self._row_buf1 = []
             self._rows_written.append(row_top)
-
-        if len(self._row_buf2) >= self.width:
             for x in range(self.width):
                 self._frame_buffer[row_bot][x] = self._row_buf2[x]
             self._row_buf2 = []
@@ -148,11 +147,13 @@ class Hub75Monitor(BusMonitor):
     def _copy_frame(self):
         return [[pixel[:] for pixel in row] for row in self._frame_buffer]
 
-    def display_ascii(self):
+    def display_last_ascii(self):
+        display_ascii(self._frame_buffer)
+
+    def display_ascii(self, frame):
         """
         Display  in ascii
         """
-        frame = self._frame_buffer
         for row in frame:
             for pix in row:
                 print(f"{pix} ", end="")
