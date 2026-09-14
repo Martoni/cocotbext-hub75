@@ -107,7 +107,6 @@ class Hub75Monitor(BusMonitor):
                 self._write_latched_row(addr)
 
             if self._frame_complete():
-                print(f"Frame count {self._frame_count}")
                 self._frame_count += 1
                 self._recv(self._copy_frame())
                 self._reset_frame_complete()
