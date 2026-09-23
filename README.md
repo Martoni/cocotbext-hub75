@@ -10,6 +10,6 @@ GitHub repository: https://github.com/Martoni/cocotbext-hub75.git
 
 Installation for active development:
 ```
-$ git clone https://github.com/Dyumnin-Interns/cocotbext-hub75
+$ git clone https://github.com/Martoni/cocotbext-hub75
 $ cd cocotbext-hub75
 $ python -m pip install -e cocotbext-hub75
